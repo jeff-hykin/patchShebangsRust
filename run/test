@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BIN="./target/release/patchShebangsRust"
+
+# 1. Ensure the Rust binary exists
+if [[ ! -x "$BIN" ]]; then
+    echo "Compiling patchShebangsRust..."
+    cargo build --release
+fi
+
+# 2. Clean and set up ./scripts directory
+rm -rf ./scripts ./host-bin
+mkdir -p ./scripts ./host-bin
+
+# 3. Create mock interpreters in host-bin
+echo -e "#!/bin/sh\necho 'mock bash'" > ./host-bin/bash
+echo -e "#!/bin/sh\necho 'mock python'" > ./host-bin/python
+echo -e "#!/bin/sh\necho 'mock env'" > ./host-bin/env
+chmod +x ./host-bin/*
+
+export HOST_PATH="$(realpath ./host-bin)"
+
+# 4. Create test scripts with various shebangs
+cat > ./scripts/regular_bash.sh <<EOF
+#!/bin/bash
+echo "This is a bash script"
+EOF
+
+cat > ./scripts/regular_python.py <<EOF
+#!/usr/bin/python
+print("This is a python script")
+EOF
+
+cat > ./scripts/env_style.sh <<EOF
+#!/usr/bin/env bash
+echo "Using env bash"
+EOF
+
+cat > ./scripts/env_S_style.sh <<EOF
+#!/usr/bin/env -S bash -x
+echo "Using env -S bash"
+EOF
+
+cat > ./scripts/env_unsupported.sh <<EOF
+#!/usr/bin/env FOO=bar bash
+echo "Unsupported env format"
+EOF
+
+chmod +x ./scripts/*
+
+echo
+echo "Original shebangs:"
+head -n 1 ./scripts/*
+
+echo
+echo "Running patchShebangsRust..."
+set +e
+"$BIN" --host --update ./scripts
+EXIT_CODE=$?
+set -e
+
+echo
+if [[ $EXIT_CODE -ne 0 ]]; then
+    echo "patchShebangsRust exited with error code $EXIT_CODE (expected for unsupported env)."
+fi
+
+echo
+echo "Modified shebangs:"
+head -n 1 ./scripts/*
+
+echo
+echo "Done. See ./scripts for results."
